@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+data/
+results/
+sanity_check.py
+docs/
