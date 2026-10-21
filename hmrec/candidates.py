@@ -5,7 +5,7 @@ from hmrec import config
 from hmrec.baselines import recent_popular
 from hmrec.splits import ensure_before_cut
 
-SOURCE_ORDER = {"repurchase": 0, "copurchase": 1, "popular": 2}
+SOURCE_ORDER = {"repurchase": 0, "copurchase": 1, "twotower": 2, "popular": 3}
 COLUMNS = ["customer_idx", "article_id", "source", "source_rank"]
 
 
@@ -101,12 +101,13 @@ def merge_candidates(frames, max_per_customer=50):
     return merged.reset_index(drop=True)
 
 
-def generate(history, cut, customers, max_per_customer=50):
+def generate(history, cut, customers, max_per_customer=50, extra_frames=()):
     customers = np.asarray(sorted(customers), dtype="int64")
     frames = [
         repurchase(history, cut, customers),
         copurchase(history, cut, customers),
         popular(history, cut, customers, n=max_per_customer),
+        *extra_frames,
     ]
     return merge_candidates(frames, max_per_customer)
 
