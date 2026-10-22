@@ -8,7 +8,7 @@
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 [![CI](https://github.com/Pratyush0206/HnM-RecSys/actions/workflows/docker-smoke.yml/badge.svg?branch=main)](https://github.com/Pratyush0206/HnM-RecSys/actions)
 ![Tests](https://img.shields.io/badge/tests-109%20passing-brightgreen)
-![MAP@12](https://img.shields.io/badge/MAP%4012-0.0301%20(validation)-blueviolet)
+![MAP@12](https://img.shields.io/badge/MAP%4012-0.0304%20(held--out%20test)-blueviolet)
 
 [![Results](https://img.shields.io/badge/Results-jump-2563eb?style=for-the-badge)](#results)
 [![Design](https://img.shields.io/badge/System%20design-jump-7c3aed?style=for-the-badge)](#system-design)
@@ -22,7 +22,7 @@ A production-style recommendation system on the H&M Personalized Fashion Recomme
 
 ## At a glance
 
-- **7.8x** the MAP@12 of global popularity and **5.1x** that of recent popularity on the validation week; the ranker adds **+17%** over the candidate order alone (paired-bootstrap interval excludes zero).
+- On the held-out test week (scored once): MAP@12 **0.0304**, **8.6x** global popularity and **3.6x** recent popularity; the ranker adds **+21%** over the candidate order alone (paired-bootstrap interval excludes zero).
 - **Leakage-safe by construction:** five consecutive weekly cuts, a runtime check that rejects any history reaching the cut date, and a held-out test week that is scored exactly once.
 - **Ablations reported honestly:** feature, candidate-source and objective ablations with bootstrap intervals, including a two-tower feature gain that did not replicate at larger scale.
 - **Serving:** online recommendations match the offline ranking code on all 5,000 stored customers (0 mismatches); p50 5.2 ms in-process, 7.6 ms over HTTP, 419 requests/s with 4 clients on a laptop CPU.
@@ -30,23 +30,33 @@ A production-style recommendation system on the H&M Personalized Fashion Recomme
 
 ## Results
 
-Validation week (2020-09-09 to 2020-09-15), seeded 200,000-customer sample of the last 16 weeks of transactions, 24,272 customers scored, metric MAP@12.
+Data: a seeded 200,000-customer sample of the last 16 weeks of transactions. Metric: MAP@12. Absolute values are not comparable to the Kaggle leaderboard, which uses the full dataset and a different protocol.
+
+**Held-out test week (2020-09-16 to 2020-09-22), scored once**
+
+| Method | MAP@12 | vs global popularity |
+|---|---|---|
+| Global popularity | 0.00354 | 1.0x |
+| Recent popularity (1-week window, chosen on training weeks) | 0.00838 | 2.4x |
+| Candidate generation order (no ranker) | 0.02524 | 7.1x |
+| **LightGBM LambdaRank ranker** | **0.03042** | **8.6x** |
+
+- 23,490 customers scored; candidate recall 0.2141.
+- Ranker minus candidate order: +0.00518, bootstrap interval [+0.00425, +0.00611], about +21%.
+- The model was frozen before the test week was touched: full 40 features, LambdaRank, default parameters, tree count from early stopping on the validation week. Design choices were made on the 100k development sample. `hmrec/final_eval.py` refuses to run a second time, and the result file stores the model's SHA-256 hash.
+
+**Validation week (2020-09-09 to 2020-09-15), development numbers**
 
 | Method | MAP@12 | vs global popularity |
 |---|---|---|
 | Global popularity | 0.00384 | 1.0x |
 | Recent popularity (1-week window, chosen on training weeks) | 0.00593 | 1.5x |
 | Candidate generation order (no ranker) | 0.02576 | 6.7x |
-| **LightGBM LambdaRank ranker** | **0.03008** | **7.8x** |
+| LightGBM LambdaRank ranker | 0.03008 | 7.8x |
 
-- Ranker minus candidate order: +0.00433, bootstrap interval [+0.00347, +0.00514].
+- 24,272 customers scored; ranker minus candidate order +0.00433, interval [+0.00347, +0.00514].
 - Candidate recall on the validation week is 0.2034, which caps what any ranker can achieve.
-- The tree count (311) and early stopping use the validation week, so these are development numbers.
-- Absolute values are not comparable to the Kaggle leaderboard, which uses the full dataset and a different protocol.
-
-**Held-out test week (2020-09-16 to 2020-09-22): TEST_RESULT_PENDING**
-
-The test week is scored once, by `hmrec/final_eval.py`, after the project is finished. The script refuses to run a second time and records the model's hash.
+- The tree count (311) and early stopping use the validation week, so these numbers are optimistic by construction. The test score (0.03042) is close to the validation score (0.03008), so there is no visible overfitting to the validation week.
 
 ## System design
 
@@ -58,7 +68,7 @@ transactions -> time cuts -> candidate generation (4 sources) -> features -> Lig
 
 **Evaluation protocol.** Five consecutive 7-day label weeks end on 2020-09-22: three training weeks, one validation week and one test week. For every cut, the history used for candidates and features ends exactly where its label week begins. A check raises an error if any history contains a date at or after the cut, and tests prove it fires. Differences are reported with a paired bootstrap over customers (1,000 resamples, seed 42).
 
-**Candidate generation** (up to 200 per customer, merged and de-duplicated):
+**Candidate generation** (200 per customer, merged and de-duplicated):
 - repurchase of recently bought items
 - item-to-item co-purchase neighbours
 - two-tower retrieval with a FAISS index
@@ -74,7 +84,7 @@ Endpoints: `GET /health`, `GET /recommend/{customer_id}`, `POST /recommend` (1 t
 
 ## Ablations
 
-Each row drops one component and retrains; "full minus variant" is positive when the full model is better. The full table comes from the 100,000-customer development sample, where the design was chosen; the 200k run replicates the two feature groups.
+Each row drops one component and retrains; "full minus variant" is positive when the full model is better. The full table comes from the 100,000-customer development sample, where the design was chosen; the 200k run replicates the two feature groups. All ablation numbers are validation-week numbers.
 
 100k development sample (full model MAP@12 0.03033):
 
@@ -152,15 +162,14 @@ python -m hmrec.bench_serving --processed-dir data/processed_200k_16w --mode inp
 python -m hmrec.bench_serving --processed-dir data/processed_200k_16w --mode http --url http://127.0.0.1:8000
 ```
 
-The serving snapshot is built from the validation week; `hmrec.store` refuses to build from the test week. The one-shot test evaluation is `python -u -m hmrec.final_eval --processed-dir data/processed_200k_16w`.
+The serving snapshot is built from the validation week; `hmrec.store` refuses to build from the test week. The one-shot test evaluation is `python -u -m hmrec.final_eval --processed-dir data/processed_200k_16w`, and the test-week popularity baseline is `python -m hmrec.final_baselines --processed-dir data/processed_200k_16w`.
 
 ## Limitations
 
-- One validation week drives the tree count, early stopping and comparisons; only the test week is untouched.
+- One validation week drives the tree count, early stopping and comparisons. The test week was scored once after all choices were frozen, but it is still a single week, and the intervals do not capture week-to-week variation.
 - Bootstrap intervals cover customer sampling only, not variation across training seeds or weeks. The two-tower model used a single seed.
 - The data is a 200,000-customer sample of the last 16 weeks, trained and evaluated on a laptop CPU.
 - Candidate recall is about 0.20, which limits the ranker.
-- The popularity baseline window was chosen on training weeks and is not the best window on the validation week.
 - Candidate-source ablations are approximate and were run on the 100k sample only.
 - The service is a demo: one process, no authentication, a 5,000-customer sample, a validation-week snapshot and precomputed features. Latency was measured on one laptop with client and server on the same machine.
 
