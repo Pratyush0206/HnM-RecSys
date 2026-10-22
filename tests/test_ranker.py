@@ -4,6 +4,7 @@ import pytest
 
 from hmrec.ranker import group_sizes, load_training, top_k_lists
 from hmrec.ranker import GROUPS, run_tag, select_columns
+from hmrec.ranker import GROUPS, PARAMS, params_for, run_tag, select_columns
 
 
 def make_frame():
@@ -90,3 +91,26 @@ def test_every_group_column_is_a_real_feature():
 def test_run_tag_names_the_dropped_groups():
     assert run_tag([]) == "full"
     assert run_tag(["metadata", "pair"]) == "no_metadata_pair"
+
+def test_params_for_binary_changes_objective_and_metric():
+    params = params_for("binary")
+    assert params["objective"] == "binary"
+    assert params["metric"] == "binary_logloss"
+    assert params["num_leaves"] == PARAMS["num_leaves"]
+
+
+def test_params_for_does_not_modify_the_shared_defaults():
+    params_for("binary")
+    assert PARAMS["objective"] == "lambdarank"
+    assert PARAMS["metric"] == "map"
+
+
+def test_params_for_rejects_unknown_objective():
+    with pytest.raises(ValueError):
+        params_for("regression")
+
+
+def test_run_tag_includes_the_objective_unless_lambdarank():
+    assert run_tag([], "binary") == "binary_full"
+    assert run_tag(["metadata"], "binary") == "binary_no_metadata"
+    assert run_tag(["metadata"]) == "no_metadata"
