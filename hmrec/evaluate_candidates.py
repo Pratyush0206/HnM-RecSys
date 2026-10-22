@@ -8,7 +8,7 @@ import numpy as np
 from hmrec import candidates, config
 from hmrec.evaluate import load_transactions
 from hmrec.metrics import map_at_k, recall_at_k
-from hmrec.splits import Splitter
+from hmrec.splits import Splitter, development_names
 
 SOURCES = {
     "repurchase": candidates.repurchase,
@@ -64,7 +64,7 @@ def run(processed_dir, results_dir, max_per_customer):
     splitter = Splitter.from_frame(transactions)
 
     report = {"data": str(processed_dir)}
-    for cut_name in ("train", "valid"):
+    for cut_name in development_names(splitter.cuts):
         report[cut_name] = evaluate_cut(splitter, cut_name, max_per_customer)
 
     results_dir = Path(results_dir)
