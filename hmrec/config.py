@@ -2,8 +2,9 @@ from pathlib import Path
 
 K = 12
 WEEK_DAYS = 7
+N_TRAIN_CUTS = 3
 SEED = 42
-DEFAULT_WEEKS = 10
+DEFAULT_WEEKS = 16
 DEFAULT_CUSTOMERS = 40_000
 
 RAW_DIR = Path("data") / "raw"
