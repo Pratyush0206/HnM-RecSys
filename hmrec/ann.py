@@ -122,7 +122,7 @@ def main():
     splitter = Splitter.from_frame(transactions)
     n_customers = int(transactions["customer_idx"].max()) + 1
     embeddings = fit(
-        splitter.history("train"), splitter.cuts["train"], n_customers, epochs=args.epochs
+        splitter.history("train_3"), splitter.cuts["train_3"], n_customers, epochs=args.epochs
     )
 
     trained = np.flatnonzero(embeddings.has_history)
