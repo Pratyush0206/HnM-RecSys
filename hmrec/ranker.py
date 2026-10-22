@@ -3,7 +3,6 @@ import json
 from pathlib import Path
 
 import lightgbm as lgb
-import numpy as np
 import pandas as pd
 
 from hmrec import config
@@ -11,7 +10,7 @@ from hmrec.evaluate import load_transactions
 from hmrec.features import FEATURE_COLUMNS
 from hmrec.metrics import map_at_k
 from hmrec.ranker_data import RANKER_DIR
-from hmrec.splits import Splitter
+from hmrec.splits import Splitter, development_names
 
 PARAMS = {
     "objective": "lambdarank",
@@ -28,18 +27,23 @@ PARAMS = {
 }
 
 
-def split_customers(frame, holdout_share, seed):
-    customers = np.sort(frame["customer_idx"].unique())
-    rng = np.random.default_rng(seed)
-    holdout = rng.choice(customers, size=int(len(customers) * holdout_share), replace=False)
-    in_holdout = frame["customer_idx"].isin(holdout)
-    return frame[~in_holdout], frame[in_holdout]
+def load_training(ranker_dir, cut_names):
+    frames = []
+    for number, name in enumerate(cut_names):
+        frame = pd.read_parquet(Path(ranker_dir) / f"{name}_features.parquet")
+        frame["cut"] = number
+        frames.append(frame)
+    combined = pd.concat(frames, ignore_index=True)
+    stride = int(combined["customer_idx"].max()) + 1
+    cut_part = combined["cut"].astype("int64") * stride
+    combined["group"] = cut_part + combined["customer_idx"].astype("int64")
+    return combined
 
 
-def group_sizes(frame):
-    if not frame["customer_idx"].is_monotonic_increasing:
-        raise ValueError("rows must be sorted by customer_idx")
-    return frame.groupby("customer_idx", sort=True).size().to_numpy()
+def group_sizes(frame, key="customer_idx"):
+    if not frame[key].is_monotonic_increasing:
+        raise ValueError(f"rows must be sorted by {key}")
+    return frame.groupby(key, sort=True).size().to_numpy()
 
 
 def top_k_lists(frame, scores, k=config.K):
@@ -60,7 +64,7 @@ def train(fit_frame, early_frame, seed):
     model.fit(
         fit_frame[FEATURE_COLUMNS],
         fit_frame["label"],
-        group=group_sizes(fit_frame),
+        group=group_sizes(fit_frame, "group"),
         eval_set=[(early_frame[FEATURE_COLUMNS], early_frame["label"])],
         eval_group=[group_sizes(early_frame)],
         eval_at=[config.K],
@@ -74,20 +78,20 @@ def main():
     parser.add_argument("--processed-dir", type=Path, default=config.PROCESSED_DIR)
     parser.add_argument("--ranker-dir", type=Path, default=None)
     parser.add_argument("--results-dir", type=Path, default=config.RESULTS_DIR)
-    parser.add_argument("--holdout", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=config.SEED)
     args = parser.parse_args()
 
     ranker_dir = args.ranker_dir or RANKER_DIR / Path(args.processed_dir).name
-    train_all = pd.read_parquet(ranker_dir / "train_features.parquet")
+    splitter = Splitter.from_frame(load_transactions(args.processed_dir))
+    train_names = [
+        name for name in development_names(splitter.cuts) if name.startswith("train")
+    ]
+
+    fit_frame = load_training(ranker_dir, train_names)
     valid = pd.read_parquet(ranker_dir / "valid_features.parquet")
+    model = train(fit_frame, valid, args.seed)
 
-    fit_frame, early_frame = split_customers(train_all, args.holdout, args.seed)
-    model = train(fit_frame, early_frame, args.seed)
-
-    transactions = load_transactions(args.processed_dir)
-    labels = Splitter.from_frame(transactions).labels("valid")
-
+    labels = splitter.labels("valid")
     ranker_lists = top_k_lists(valid, model.predict(valid[FEATURE_COLUMNS]))
     order_lists = top_k_lists(valid, -valid["position"].to_numpy())
 
@@ -97,8 +101,10 @@ def main():
     share = (gain / gain.sum()).sort_values(ascending=False).round(4)
 
     report = {
-        "train_customers_fit": int(fit_frame["customer_idx"].nunique()),
-        "train_customers_early_stopping": int(early_frame["customer_idx"].nunique()),
+        "train_cuts": train_names,
+        "train_groups": int(fit_frame["group"].nunique()),
+        "train_positives": int(fit_frame["label"].sum()),
+        "early_stopping_on": "valid",
         "best_iteration": int(model.best_iteration_),
         "valid": {
             "customers_scored": len(labels),
