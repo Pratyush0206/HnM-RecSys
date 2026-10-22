@@ -3,15 +3,16 @@ import json
 from pathlib import Path
 
 import lightgbm as lgb
+import numpy as np
 import pandas as pd
 
 from hmrec import config
+from hmrec.bootstrap import paired_bootstrap, per_customer_scores
 from hmrec.evaluate import load_transactions
-from hmrec.features import FEATURE_COLUMNS
+from hmrec.features import FEATURE_COLUMNS, META_COLUMNS
 from hmrec.metrics import map_at_k
 from hmrec.ranker_data import RANKER_DIR
 from hmrec.splits import Splitter, development_names
-from hmrec.bootstrap import paired_bootstrap, per_customer_scores
 
 PARAMS = {
     "objective": "lambdarank",
@@ -26,6 +27,27 @@ PARAMS = {
     "reg_lambda": 5.0,
     "verbose": -1,
 }
+
+GROUPS = {
+    "metadata": META_COLUMNS,
+    "twotower": ["tt_score", "rank_twotower"],
+    "pair": ["p_times_bought", "p_days_since_bought", "p_price_ratio", "p_n_sources"],
+    "item_recent": ["i_n_1w", "i_n_2w", "i_n_4w"],
+}
+
+
+def select_columns(drop=()):
+    unknown = [name for name in drop if name not in GROUPS]
+    if unknown:
+        raise ValueError(f"unknown feature groups: {unknown}")
+    removed = {column for name in drop for column in GROUPS[name]}
+    return [column for column in FEATURE_COLUMNS if column not in removed]
+
+
+def run_tag(drop):
+    if not drop:
+        return "full"
+    return "no_" + "_".join(drop)
 
 
 def load_training(ranker_dir, cut_names):
@@ -60,13 +82,14 @@ def top_k_lists(frame, scores, k=config.K):
     }
 
 
-def train(fit_frame, early_frame, seed):
+def train(fit_frame, early_frame, seed, columns=None):
+    columns = list(columns or FEATURE_COLUMNS)
     model = lgb.LGBMRanker(random_state=seed, **PARAMS)
     model.fit(
-        fit_frame[FEATURE_COLUMNS],
+        fit_frame[columns],
         fit_frame["label"],
         group=group_sizes(fit_frame, "group"),
-        eval_set=[(early_frame[FEATURE_COLUMNS], early_frame["label"])],
+        eval_set=[(early_frame[columns], early_frame["label"])],
         eval_group=[group_sizes(early_frame)],
         eval_at=[config.K],
         callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(50)],
@@ -80,9 +103,14 @@ def main():
     parser.add_argument("--ranker-dir", type=Path, default=None)
     parser.add_argument("--results-dir", type=Path, default=config.RESULTS_DIR)
     parser.add_argument("--seed", type=int, default=config.SEED)
+    parser.add_argument("--drop", nargs="*", default=[], choices=sorted(GROUPS))
     args = parser.parse_args()
 
-    ranker_dir = args.ranker_dir or RANKER_DIR / Path(args.processed_dir).name
+    columns = select_columns(args.drop)
+    tag = run_tag(args.drop)
+    data_name = Path(args.processed_dir).name
+
+    ranker_dir = args.ranker_dir or RANKER_DIR / data_name
     splitter = Splitter.from_frame(load_transactions(args.processed_dir))
     train_names = [
         name for name in development_names(splitter.cuts) if name.startswith("train")
@@ -90,10 +118,10 @@ def main():
 
     fit_frame = load_training(ranker_dir, train_names)
     valid = pd.read_parquet(ranker_dir / "valid_features.parquet")
-    model = train(fit_frame, valid, args.seed)
+    model = train(fit_frame, valid, args.seed, columns)
 
     labels = splitter.labels("valid")
-    ranker_lists = top_k_lists(valid, model.predict(valid[FEATURE_COLUMNS]))
+    ranker_lists = top_k_lists(valid, model.predict(valid[columns]))
     order_lists = top_k_lists(valid, -valid["position"].to_numpy())
 
     ranker_scores = per_customer_scores(labels, ranker_lists)
@@ -101,11 +129,14 @@ def main():
     bootstrap = paired_bootstrap(ranker_scores, order_scores)
 
     gain = pd.Series(
-        model.booster_.feature_importance(importance_type="gain"), index=FEATURE_COLUMNS
+        model.booster_.feature_importance(importance_type="gain"), index=columns
     )
     share = (gain / gain.sum()).sort_values(ascending=False).round(4)
 
     report = {
+        "run": tag,
+        "dropped_groups": args.drop,
+        "n_features": len(columns),
         "train_cuts": train_names,
         "train_groups": int(fit_frame["group"].nunique()),
         "train_positives": int(fit_frame["label"].sum()),
@@ -125,8 +156,16 @@ def main():
     }
 
     args.results_dir.mkdir(parents=True, exist_ok=True)
-    model.booster_.save_model(str(ranker_dir / "ranker.txt"))
-    out_path = args.results_dir / f"ranker_{Path(args.processed_dir).name}.json"
+    suffix = "" if tag == "full" else f"_{tag}"
+    model_name = "ranker.txt" if tag == "full" else f"ranker_{tag}.txt"
+    model.booster_.save_model(str(ranker_dir / model_name))
+    np.savez(
+        args.results_dir / f"scores_{data_name}_{tag}.npz",
+        customers=np.asarray(sorted(labels), dtype="int64"),
+        ranker=ranker_scores,
+        order=order_scores,
+    )
+    out_path = args.results_dir / f"ranker_{data_name}{suffix}.json"
     out_path.write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))
     print(f"saved to {out_path}")
