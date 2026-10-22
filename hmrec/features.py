@@ -7,7 +7,7 @@ import pandas as pd
 from hmrec import config
 from hmrec.evaluate import load_transactions
 from hmrec.ranker_data import RANK_COLUMNS, RANKER_DIR
-from hmrec.splits import Splitter, ensure_before_cut
+from hmrec.splits import Splitter, development_names, ensure_before_cut
 
 WINDOWS = (1, 2, 4)
 
@@ -121,7 +121,7 @@ def main():
     splitter = Splitter.from_frame(transactions)
 
     summary = {"features": FEATURE_COLUMNS}
-    for cut_name in ("train", "valid"):
+    for cut_name in development_names(splitter.cuts):
         cut = splitter.cuts[cut_name]
         table = pd.read_parquet(ranker_dir / f"{cut_name}.parquet")
         featured = build_features(table, splitter.history(cut_name), cut)
