@@ -6,7 +6,7 @@ import pandas as pd
 
 from hmrec import baselines, config
 from hmrec.metrics import map_at_k
-from hmrec.splits import Splitter
+from hmrec.splits import Splitter, development_names
 
 
 def load_transactions(processed_dir):
@@ -35,9 +35,11 @@ def score_baselines(splitter, cut_name, recent_weeks=(1, 2)):
 def run(processed_dir, results_dir):
     transactions = load_transactions(processed_dir)
     splitter = Splitter.from_frame(transactions)
+    names = development_names(splitter.cuts)
+    train_names = [name for name in names if name.startswith("train")]
 
     report = {"data": str(processed_dir)}
-    for cut_name in ("train", "valid"):
+    for cut_name in names:
         cut = splitter.cuts[cut_name]
         scores, n_customers = score_baselines(splitter, cut_name)
         report[cut_name] = {
@@ -47,9 +49,15 @@ def run(processed_dir, results_dir):
             "map_at_12": scores,
         }
 
-    train_scores = report["train"]["map_at_12"]
-    recent_names = [name for name in train_scores if name.startswith("recent")]
-    chosen = max(recent_names, key=lambda name: train_scores[name])
+    recent_names = [
+        name for name in report[train_names[0]]["map_at_12"] if name.startswith("recent")
+    ]
+    train_mean = {
+        name: sum(report[cut]["map_at_12"][name] for cut in train_names) / len(train_names)
+        for name in recent_names
+    }
+    chosen = max(train_mean, key=train_mean.get)
+    report["train_mean_map_at_12"] = {name: round(value, 5) for name, value in train_mean.items()}
     report["chosen_on_train"] = chosen
     report["valid_map_at_12_of_chosen"] = report["valid"]["map_at_12"][chosen]
 
