@@ -1,5 +1,21 @@
 # Two-Stage Fashion Recommender
 
+![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-CPU-EE4C2C?logo=pytorch&logoColor=white)
+![LightGBM](https://img.shields.io/badge/LightGBM-4.7-2E8B57)
+![FAISS](https://img.shields.io/badge/FAISS-CPU-0467DF)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.159-009688?logo=fastapi&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
+[![CI](https://github.com/Pratyush0206/HnM-RecSys/actions/workflows/docker-smoke.yml/badge.svg?branch=main)](https://github.com/Pratyush0206/HnM-RecSys/actions)
+![Tests](https://img.shields.io/badge/tests-109%20passing-brightgreen)
+![MAP@12](https://img.shields.io/badge/MAP%4012-0.0301%20(validation)-blueviolet)
+
+[![Results](https://img.shields.io/badge/Results-jump-2563eb?style=for-the-badge)](#results)
+[![Design](https://img.shields.io/badge/System%20design-jump-7c3aed?style=for-the-badge)](#system-design)
+[![Ablations](https://img.shields.io/badge/Ablations-jump-db2777?style=for-the-badge)](#ablations)
+[![Latency](https://img.shields.io/badge/Latency-jump-d97706?style=for-the-badge)](#serving-performance)
+[![Run](https://img.shields.io/badge/Run%20it-jump-059669?style=for-the-badge)](#run-it)
+
 A production-style recommendation system on the H&M Personalized Fashion Recommendations dataset: multi-source candidate generation, a LightGBM LambdaRank ranker, leakage-safe evaluation, and a FastAPI service with measured latency.
 
 **Stack:** Python, PyTorch, FAISS, LightGBM, pandas, FastAPI, Docker, GitHub Actions, pytest
