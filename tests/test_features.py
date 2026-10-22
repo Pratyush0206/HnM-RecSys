@@ -5,7 +5,7 @@ import pytest
 from hmrec import features
 from hmrec.splits import LeakageError, Splitter, make_cuts
 
-CUT = make_cuts("2020-09-22")["train"]
+CUT = make_cuts("2020-09-22")["valid"]
 COLUMNS = ["t_dat", "customer_idx", "article_id", "price", "sales_channel_id"]
 
 
@@ -90,6 +90,6 @@ def test_label_week_changes_do_not_affect_features():
     results = []
     for item in (99, 77):
         splitter = Splitter.from_frame(frame_with_future(item))
-        history = splitter.history("train")
-        results.append(features.build_features(make_table(), history, splitter.cuts["train"]))
+        history = splitter.history("valid")
+        results.append(features.build_features(make_table(), history, splitter.cuts["valid"]))
     pd.testing.assert_frame_equal(results[0], results[1])
