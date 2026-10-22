@@ -36,7 +36,7 @@ def test_position_starts_at_one_for_each_customer(setup):
 
 def test_sources_reject_leaky_history():
     frame = make_frame()
-    cut = make_cuts("2020-09-22")["train"]
+    cut = make_cuts("2020-09-22")["train_3"]
     customers = np.arange(6)
     for build in (candidates.repurchase, candidates.copurchase, candidates.popular):
         with pytest.raises(LeakageError):
