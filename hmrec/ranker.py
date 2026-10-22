@@ -11,6 +11,7 @@ from hmrec.features import FEATURE_COLUMNS
 from hmrec.metrics import map_at_k
 from hmrec.ranker_data import RANKER_DIR
 from hmrec.splits import Splitter, development_names
+from hmrec.bootstrap import paired_bootstrap, per_customer_scores
 
 PARAMS = {
     "objective": "lambdarank",
@@ -95,6 +96,10 @@ def main():
     ranker_lists = top_k_lists(valid, model.predict(valid[FEATURE_COLUMNS]))
     order_lists = top_k_lists(valid, -valid["position"].to_numpy())
 
+    ranker_scores = per_customer_scores(labels, ranker_lists)
+    order_scores = per_customer_scores(labels, order_lists)
+    bootstrap = paired_bootstrap(ranker_scores, order_scores)
+
     gain = pd.Series(
         model.booster_.feature_importance(importance_type="gain"), index=FEATURE_COLUMNS
     )
@@ -110,6 +115,9 @@ def main():
             "customers_scored": len(labels),
             "map_at_12_ranker": round(map_at_k(labels, ranker_lists), 5),
             "map_at_12_candidate_order": round(map_at_k(labels, order_lists), 5),
+            "bootstrap_ranker_minus_candidate_order": {
+                name: round(value, 5) for name, value in bootstrap.items()
+            },
         },
         "feature_importance_gain_share": {
             name: float(value) for name, value in share.head(15).items()
