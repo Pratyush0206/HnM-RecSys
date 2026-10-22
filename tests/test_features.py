@@ -93,3 +93,60 @@ def test_label_week_changes_do_not_affect_features():
         history = splitter.history("valid")
         results.append(features.build_features(make_table(), history, splitter.cuts["valid"]))
     pd.testing.assert_frame_equal(results[0], results[1])
+
+def make_customers():
+    return pd.DataFrame({"customer_idx": [0, 1], "c_age": [22.0, 45.0]})
+
+
+def make_articles():
+    return pd.DataFrame(
+        {
+            "article_id": [10, 20, 30],
+            "i_type": [253, 253, 306],
+            "i_group": [1, 1, 2],
+            "i_dept": [5, 6, 7],
+            "i_colour": [9, 9, 10],
+            "i_index": [1, 1, 1],
+            "i_garment": [1001, 1001, 1002],
+        }
+    )
+
+
+def test_metadata_columns_absent_without_metadata():
+    result = features.build_features(make_table(), make_history(), CUT)
+    assert "c_age" not in result.columns
+    assert "p_type_n" not in result.columns
+
+
+def test_metadata_features():
+    result = features.build_features(
+        make_table(), make_history(), CUT, make_customers(), make_articles()
+    )
+    assert result["c_age"].tolist() == [22.0, 22.0, 22.0]
+    assert result["i_type"].tolist() == [253, 253, 306]
+    assert result["p_type_n"].tolist() == [3, 3, 0]
+    assert result["p_type_share"].tolist() == pytest.approx([1.0, 1.0, 0.0])
+    assert result["p_type_days_since"].iloc[:2].tolist() == [4, 4]
+    assert np.isnan(result["p_type_days_since"].iloc[2])
+    assert result["p_dept_n"].tolist() == [2, 1, 0]
+    assert result["p_dept_share"].tolist() == pytest.approx([2 / 3, 1 / 3, 0.0])
+    assert result["p_dept_days_since"].iloc[:2].tolist() == [8, 4]
+    assert result["p_age_n_1w"].tolist() == [0, 1, 0]
+    assert result["p_age_n_4w"].tolist() == [2, 1, 0]
+
+
+def test_label_week_changes_do_not_affect_metadata_features():
+    results = []
+    for item in (99, 77):
+        splitter = Splitter.from_frame(frame_with_future(item))
+        history = splitter.history("valid")
+        results.append(
+            features.build_features(
+                make_table(),
+                history,
+                splitter.cuts["valid"],
+                make_customers(),
+                make_articles(),
+            )
+        )
+    pd.testing.assert_frame_equal(results[0], results[1])
