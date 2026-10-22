@@ -28,12 +28,24 @@ PARAMS = {
     "verbose": -1,
 }
 
+OBJECTIVES = ("lambdarank", "binary")
+
 GROUPS = {
     "metadata": META_COLUMNS,
     "twotower": ["tt_score", "rank_twotower"],
     "pair": ["p_times_bought", "p_days_since_bought", "p_price_ratio", "p_n_sources"],
     "item_recent": ["i_n_1w", "i_n_2w", "i_n_4w"],
 }
+
+
+def params_for(objective):
+    if objective not in OBJECTIVES:
+        raise ValueError(f"unknown objective: {objective}")
+    params = dict(PARAMS)
+    if objective == "binary":
+        params["objective"] = "binary"
+        params["metric"] = "binary_logloss"
+    return params
 
 
 def select_columns(drop=()):
@@ -44,10 +56,11 @@ def select_columns(drop=()):
     return [column for column in FEATURE_COLUMNS if column not in removed]
 
 
-def run_tag(drop):
-    if not drop:
-        return "full"
-    return "no_" + "_".join(drop)
+def run_tag(drop, objective="lambdarank"):
+    name = "full" if not drop else "no_" + "_".join(drop)
+    if objective == "lambdarank":
+        return name
+    return f"{objective}_{name}"
 
 
 def load_training(ranker_dir, cut_names):
@@ -82,9 +95,20 @@ def top_k_lists(frame, scores, k=config.K):
     }
 
 
-def train(fit_frame, early_frame, seed, columns=None):
+def train(fit_frame, early_frame, seed, columns=None, objective="lambdarank"):
     columns = list(columns or FEATURE_COLUMNS)
-    model = lgb.LGBMRanker(random_state=seed, **PARAMS)
+    params = params_for(objective)
+    callbacks = [lgb.early_stopping(50, verbose=False), lgb.log_evaluation(50)]
+    if objective == "binary":
+        model = lgb.LGBMClassifier(random_state=seed, **params)
+        model.fit(
+            fit_frame[columns],
+            fit_frame["label"],
+            eval_set=[(early_frame[columns], early_frame["label"])],
+            callbacks=callbacks,
+        )
+        return model
+    model = lgb.LGBMRanker(random_state=seed, **params)
     model.fit(
         fit_frame[columns],
         fit_frame["label"],
@@ -92,9 +116,15 @@ def train(fit_frame, early_frame, seed, columns=None):
         eval_set=[(early_frame[columns], early_frame["label"])],
         eval_group=[group_sizes(early_frame)],
         eval_at=[config.K],
-        callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(50)],
+        callbacks=callbacks,
     )
     return model
+
+
+def predict_scores(model, frame, columns, objective):
+    if objective == "binary":
+        return model.predict_proba(frame[columns])[:, 1]
+    return model.predict(frame[columns])
 
 
 def main():
@@ -104,10 +134,11 @@ def main():
     parser.add_argument("--results-dir", type=Path, default=config.RESULTS_DIR)
     parser.add_argument("--seed", type=int, default=config.SEED)
     parser.add_argument("--drop", nargs="*", default=[], choices=sorted(GROUPS))
+    parser.add_argument("--objective", default="lambdarank", choices=OBJECTIVES)
     args = parser.parse_args()
 
     columns = select_columns(args.drop)
-    tag = run_tag(args.drop)
+    tag = run_tag(args.drop, args.objective)
     data_name = Path(args.processed_dir).name
 
     ranker_dir = args.ranker_dir or RANKER_DIR / data_name
@@ -118,10 +149,11 @@ def main():
 
     fit_frame = load_training(ranker_dir, train_names)
     valid = pd.read_parquet(ranker_dir / "valid_features.parquet")
-    model = train(fit_frame, valid, args.seed, columns)
+    model = train(fit_frame, valid, args.seed, columns, args.objective)
 
     labels = splitter.labels("valid")
-    ranker_lists = top_k_lists(valid, model.predict(valid[columns]))
+    scores = predict_scores(model, valid, columns, args.objective)
+    ranker_lists = top_k_lists(valid, scores)
     order_lists = top_k_lists(valid, -valid["position"].to_numpy())
 
     ranker_scores = per_customer_scores(labels, ranker_lists)
@@ -135,6 +167,7 @@ def main():
 
     report = {
         "run": tag,
+        "objective": args.objective,
         "dropped_groups": args.drop,
         "n_features": len(columns),
         "train_cuts": train_names,
