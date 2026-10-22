@@ -1,0 +1,34 @@
+name: docker-smoke
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t hmrec-serve .
+
+      - name: Create demo model and store
+        run: |
+          mkdir demo
+          docker run --rm -v "$PWD/demo:/data" hmrec-serve python -m hmrec.demo_store --out-dir /data
+
+      - name: Start service
+        run: |
+          docker run -d --name svc -p 8000:8000 -v "$PWD/demo:/data" hmrec-serve
+          for i in $(seq 1 30); do curl -sf localhost:8000/health && break; sleep 1; done
+
+      - name: Check endpoints
+        run: |
+          curl -sf localhost:8000/health | grep '"status":"ok"'
+          curl -sf localhost:8000/recommend/demo0000 | grep '"source":"ranker"'
+          curl -sf localhost:8000/recommend/unknown | grep '"source":"fallback_popular"'
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs svc
