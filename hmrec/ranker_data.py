@@ -9,7 +9,7 @@ from hmrec import candidates, config
 from hmrec.ann import build_index, twotower_candidates
 from hmrec.evaluate import load_transactions
 from hmrec.metrics import recall_at_k
-from hmrec.splits import Splitter
+from hmrec.splits import Splitter, development_names
 from hmrec.twotower import fit
 
 RANKER_DIR = Path("data") / "ranker"
@@ -95,10 +95,10 @@ def main():
             "max_per_customer": args.max_per_customer,
         }
     }
-    for cut_name in ("train", "valid"):
+    for cut_name in development_names(splitter.cuts):
         table, labels = build_cut_table(splitter, cut_name, n_customers, args)
         recall = recall_at_k(labels, candidates.to_lists(table))
-        if cut_name == "train":
+        if cut_name.startswith("train"):
             table = keep_trainable(table)
         table.to_parquet(out_dir / f"{cut_name}.parquet", index=False)
         summary[cut_name] = {
