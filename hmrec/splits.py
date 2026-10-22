@@ -17,24 +17,24 @@ class Cut:
     label_end: pd.Timestamp
 
 
-def make_cuts(last_day, week_days=config.WEEK_DAYS):
+def make_cuts(last_day, week_days=config.WEEK_DAYS, n_train=config.N_TRAIN_CUTS):
     last_day = pd.Timestamp(last_day).normalize()
-    valid_start = last_day - pd.Timedelta(days=week_days - 1)
-    train_start = valid_start - pd.Timedelta(days=week_days)
-    return {
-        "train": Cut(
-            name="train",
-            history_end=train_start,
-            label_start=train_start,
-            label_end=valid_start,
-        ),
-        "valid": Cut(
-            name="valid",
-            history_end=valid_start,
-            label_start=valid_start,
-            label_end=last_day + pd.Timedelta(days=1),
-        ),
-    }
+    names = [f"train_{i}" for i in range(1, n_train + 1)] + ["valid", "test"]
+    first_start = last_day - pd.Timedelta(days=week_days * len(names) - 1)
+    cuts = {}
+    for position, name in enumerate(names):
+        start = first_start + pd.Timedelta(days=week_days * position)
+        cuts[name] = Cut(
+            name=name,
+            history_end=start,
+            label_start=start,
+            label_end=start + pd.Timedelta(days=week_days),
+        )
+    return cuts
+
+
+def development_names(cuts):
+    return [name for name in cuts if name != "test"]
 
 
 def ensure_before_cut(frame, cut, column="t_dat"):
