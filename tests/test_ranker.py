@@ -5,6 +5,7 @@ import pytest
 from hmrec.ranker import group_sizes, load_training, top_k_lists
 from hmrec.ranker import GROUPS, run_tag, select_columns
 from hmrec.ranker import GROUPS, PARAMS, params_for, run_tag, select_columns
+from hmrec.ranker import GROUPS, PARAMS, drop_source, params_for, run_tag, select_columns
 
 
 def make_frame():
@@ -114,3 +115,58 @@ def test_run_tag_includes_the_objective_unless_lambdarank():
     assert run_tag([], "binary") == "binary_full"
     assert run_tag(["metadata"], "binary") == "binary_no_metadata"
     assert run_tag(["metadata"]) == "no_metadata"
+
+def source_frame():
+    nan = np.nan
+    return pd.DataFrame(
+        {
+            "customer_idx": [0, 0, 0],
+            "article_id": [10, 11, 12],
+            "position": [1, 2, 3],
+            "label": [0, 1, 1],
+            "rank_repurchase": [1, nan, nan],
+            "rank_copurchase": [nan, nan, 1],
+            "rank_twotower": [nan, nan, nan],
+            "rank_popular": [nan, 1, 2],
+        }
+    )
+
+
+def test_drop_source_removes_only_rows_unique_to_that_source():
+    result = drop_source(source_frame(), "popular")
+    assert result["article_id"].tolist() == [10, 12]
+    assert result["position"].tolist() == [1, 2]
+    assert result["rank_popular"].isna().all()
+    assert result["label"].sum() == 1
+
+
+def test_drop_source_renumbers_each_group_separately():
+    nan = np.nan
+    frame = pd.DataFrame(
+        {
+            "customer_idx": [0, 0, 0, 0, 0],
+            "group": [0, 0, 1, 1, 1],
+            "article_id": [1, 2, 3, 4, 5],
+            "position": [1, 2, 1, 2, 3],
+            "label": [0, 0, 0, 0, 0],
+            "rank_repurchase": [nan, 1, 1, nan, nan],
+            "rank_copurchase": [nan, nan, nan, nan, 1],
+            "rank_twotower": [nan, nan, nan, nan, nan],
+            "rank_popular": [1, nan, nan, 1, nan],
+        }
+    )
+    result = drop_source(frame, "popular")
+    assert result["article_id"].tolist() == [2, 3, 5]
+    assert result["group"].tolist() == [0, 1, 1]
+    assert result["position"].tolist() == [1, 1, 2]
+
+
+def test_drop_source_rejects_unknown_source():
+    with pytest.raises(ValueError):
+        drop_source(source_frame(), "nonsense")
+
+
+def test_run_tag_names_the_dropped_source():
+    assert run_tag([], "lambdarank", "popular") == "nosrc_popular"
+    assert run_tag(["metadata"], "lambdarank", "twotower") == "no_metadata_nosrc_twotower"
+    assert run_tag([], "binary", "popular") == "binary_nosrc_popular"
