@@ -23,15 +23,19 @@ def make_demo(out_dir, customers=20, candidates=30, n_features=5, seed=config.SE
     featured["rank_popular"] = position.astype("float64")
 
     labels = (featured["f0"] + rng.normal(scale=0.5, size=rows) > 0.8).astype(int)
-    ranker = lgb.LGBMRanker(
-        n_estimators=20, num_leaves=7, min_child_samples=5, verbose=-1, random_state=seed
-    )
-    ranker.fit(featured[names], labels, group=[candidates] * customers)
+    dataset = lgb.Dataset(featured[names], label=labels, group=[candidates] * customers)
+    params = {
+        "objective": "lambdarank",
+        "num_leaves": 7,
+        "min_data_in_leaf": 5,
+        "verbose": -1,
+        "seed": seed,
+    }
+    booster = lgb.train(params, dataset, num_boost_round=20)
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    ranker.booster_.save_model(str(out_dir / "ranker.txt"))
-
+    booster.save_model(str(out_dir / "ranker.txt"))
     customer_map = pd.DataFrame(
         {
             "customer_idx": np.arange(customers),
