@@ -9,7 +9,7 @@ from hmrec.ann import build_index, twotower_candidates
 from hmrec.evaluate import load_transactions
 from hmrec.evaluate_candidates import source_lists
 from hmrec.metrics import map_at_k, recall_at_k
-from hmrec.splits import Splitter
+from hmrec.splits import Splitter, development_names
 from hmrec.twotower import fit
 
 
@@ -79,7 +79,7 @@ def main():
             "logq": not args.no_logq,
         },
     }
-    for cut_name in ("train", "valid"):
+    for cut_name in development_names(splitter.cuts):
         report[cut_name] = evaluate_cut(splitter, cut_name, n_customers, args)
 
     args.results_dir.mkdir(parents=True, exist_ok=True)
