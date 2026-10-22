@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 from hmrec.ranker import group_sizes, load_training, top_k_lists
+from hmrec.ranker import GROUPS, run_tag, select_columns
 
 
 def make_frame():
@@ -60,3 +61,32 @@ def test_top_k_lists_orders_by_score_and_cuts_to_k():
     assert lists[1] == [5, 4]
     assert lists[2] == [8, 9]
     assert lists[3] == [10]
+
+def test_select_columns_removes_whole_groups():
+    kept = select_columns(["twotower"])
+    assert "tt_score" not in kept
+    assert "rank_twotower" not in kept
+    assert "position" in kept
+
+
+def test_select_columns_without_drop_keeps_everything():
+    from hmrec.features import FEATURE_COLUMNS
+
+    assert select_columns() == FEATURE_COLUMNS
+
+
+def test_select_columns_rejects_unknown_group():
+    with pytest.raises(ValueError):
+        select_columns(["nonsense"])
+
+
+def test_every_group_column_is_a_real_feature():
+    from hmrec.features import FEATURE_COLUMNS
+
+    for columns in GROUPS.values():
+        assert set(columns) <= set(FEATURE_COLUMNS)
+
+
+def test_run_tag_names_the_dropped_groups():
+    assert run_tag([]) == "full"
+    assert run_tag(["metadata", "pair"]) == "no_metadata_pair"
