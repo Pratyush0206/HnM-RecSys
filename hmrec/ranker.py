@@ -36,6 +36,12 @@ GROUPS = {
     "pair": ["p_times_bought", "p_days_since_bought", "p_price_ratio", "p_n_sources"],
     "item_recent": ["i_n_1w", "i_n_2w", "i_n_4w"],
 }
+SOURCES = {
+    "repurchase": "rank_repurchase",
+    "copurchase": "rank_copurchase",
+    "twotower": "rank_twotower",
+    "popular": "rank_popular",
+}
 
 
 def params_for(objective):
@@ -55,9 +61,22 @@ def select_columns(drop=()):
     removed = {column for name in drop for column in GROUPS[name]}
     return [column for column in FEATURE_COLUMNS if column not in removed]
 
+def drop_source(frame, source):
+    if source not in SOURCES:
+        raise ValueError(f"unknown candidate source: {source}")
+    key = "group" if "group" in frame.columns else "customer_idx"
+    other_columns = [column for name, column in SOURCES.items() if name != source]
+    kept = frame[frame[other_columns].notna().any(axis=1)].copy()
+    kept = kept.sort_values([key, "position"], kind="stable")
+    kept["position"] = kept.groupby(key).cumcount() + 1
+    kept[SOURCES[source]] = np.nan
+    return kept
 
-def run_tag(drop, objective="lambdarank"):
+
+def run_tag(drop, objective="lambdarank", source=None):
     name = "full" if not drop else "no_" + "_".join(drop)
+    if source:
+        name = f"nosrc_{source}" if name == "full" else f"{name}_nosrc_{source}"
     if objective == "lambdarank":
         return name
     return f"{objective}_{name}"
@@ -135,10 +154,11 @@ def main():
     parser.add_argument("--seed", type=int, default=config.SEED)
     parser.add_argument("--drop", nargs="*", default=[], choices=sorted(GROUPS))
     parser.add_argument("--objective", default="lambdarank", choices=OBJECTIVES)
+    parser.add_argument("--drop-source", default=None, choices=sorted(SOURCES))
     args = parser.parse_args()
 
     columns = select_columns(args.drop)
-    tag = run_tag(args.drop, args.objective)
+    tag = run_tag(args.drop, args.objective, args.drop_source)
     data_name = Path(args.processed_dir).name
 
     ranker_dir = args.ranker_dir or RANKER_DIR / data_name
@@ -149,6 +169,9 @@ def main():
 
     fit_frame = load_training(ranker_dir, train_names)
     valid = pd.read_parquet(ranker_dir / "valid_features.parquet")
+    if args.drop_source:
+        fit_frame = drop_source(fit_frame, args.drop_source)
+        valid = drop_source(valid, args.drop_source)
     model = train(fit_frame, valid, args.seed, columns, args.objective)
 
     labels = splitter.labels("valid")
@@ -169,6 +192,8 @@ def main():
         "run": tag,
         "objective": args.objective,
         "dropped_groups": args.drop,
+        "dropped_source": args.drop_source,
+        "valid_positives_in_candidates": int(valid["label"].sum()),
         "n_features": len(columns),
         "train_cuts": train_names,
         "train_groups": int(fit_frame["group"].nunique()),
