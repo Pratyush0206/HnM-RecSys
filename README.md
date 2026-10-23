@@ -172,6 +172,7 @@ The serving snapshot is built from the validation week; `hmrec.store` refuses to
 - Candidate recall is about 0.20, which limits the ranker.
 - Candidate-source ablations are approximate and were run on the 100k sample only.
 - The service is a demo: one process, no authentication, a 5,000-customer sample, a validation-week snapshot and precomputed features. Latency was measured on one laptop with client and server on the same machine.
+- Sampling: 200,000 customers drawn uniformly at random (seed 42) from customers with at least one purchase in the last 16 weeks of data. Item statistics (popularity, co-purchase, item features) are computed from those customers' transactions only (about 1.7M rows), not from the full history. MAP@12 is computed over customers who purchased in the evaluation week. Absolute scores are therefore not comparable with the Kaggle leaderboard; the popularity baselines are scored on the same customers and week, so the lift over them is the comparable quantity.
 
 ## Repository layout
 
